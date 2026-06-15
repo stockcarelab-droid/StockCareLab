@@ -1,0 +1,14 @@
+{
+  "users": [
+    {
+      "id_user": 1,
+      "nama_lengkap": "Administrator Lab",
+      "username": "admin",
+      "password": "admin123",
+      "role": "admin",
+      "status": "aktif"
+    }
+  ],
+  "inventory_items": [],
+  "inventory_item_details": []
+}

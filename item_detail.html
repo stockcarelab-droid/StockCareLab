@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Detail Item | StockCare Lab</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="dashboard-page">
+    <nav class="topbar">
+        <div class="brand-inline">
+            <strong>StockCare Lab</strong>
+        </div>
+        <button class="logout-link" type="button" data-logout>Keluar</button>
+    </nav>
+
+    <main class="dashboard">
+        <a class="back-link" id="backToCategory" href="dashboard.html">Kembali</a>
+
+        <section class="stock-panel detail-panel">
+            <div class="panel-heading">
+                <div>
+                    <p id="categoryLabel"></p>
+                    <h2 id="itemTitle"></h2>
+                    <div class="stock-summary">
+                        Stock In Hand: <strong id="stockInHand">0</strong>
+                    </div>
+                </div>
+                <div class="detail-tools">
+                    <div class="detail-filter-row">
+                        <label class="search-field" for="detailSearch">
+                            <span>Cari</span>
+                            <input type="search" id="detailSearch" placeholder="Cari tanggal, batch, satuan, distributor">
+                        </label>
+                        <form class="sort-form">
+                            <label for="urutan">Urutkan</label>
+                            <select id="urutan">
+                                <option value="terbaru">Terbaru</option>
+                                <option value="terlama">Terlama</option>
+                            </select>
+                        </form>
+                    </div>
+                    <div class="tool-actions">
+                        <button type="button" class="export-button" id="exportDetailButton">Export Excel</button>
+                        <button type="button" class="add-button" id="openDetailFormButton">Tambah update</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Tanggal</th>
+                            <th>Jumlah Masuk</th>
+                            <th>Nomor Batch</th>
+                            <th>Expire Date</th>
+                            <th>Satuan</th>
+                            <th>Jumlah Keluar</th>
+                            <th>Jumlah Stok</th>
+                            <th>Distributor</th>
+                            <th>Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="detailRows"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <div class="sheet-overlay" id="detailSheet" aria-hidden="true">
+            <section class="bottom-sheet" role="dialog" aria-modal="true" aria-labelledby="detailSheetTitle">
+                <div class="sheet-handle" aria-hidden="true"></div>
+                <div class="panel-heading">
+                    <div>
+                        <p id="sheetItemName"></p>
+                        <h2 id="detailSheetTitle">Tambah update item</h2>
+                    </div>
+                    <button type="button" class="cancel-link" data-close-sheet>Tutup</button>
+                </div>
+
+                <div class="alert" id="detailAlert" hidden></div>
+
+                <form class="crud-form" id="detailForm">
+                    <input type="hidden" id="editDetailId">
+                    <div>
+                        <label for="tanggal">Tanggal</label>
+                        <input type="date" id="tanggal" required>
+                    </div>
+                    <div>
+                        <label for="jumlah_masuk">Jumlah Masuk</label>
+                        <input type="number" id="jumlah_masuk" min="0" value="0" required>
+                    </div>
+                    <div>
+                        <label for="nomor_batch">Nomor Batch</label>
+                        <input type="text" id="nomor_batch" required>
+                    </div>
+                    <div>
+                        <label for="expire_date">Expire Date</label>
+                        <input type="date" id="expire_date" required>
+                    </div>
+                    <div>
+                        <label for="satuan">Satuan</label>
+                        <input type="text" id="satuan" placeholder="Contoh: box, botol, pcs" required>
+                    </div>
+                    <div>
+                        <label for="jumlah_keluar">Jumlah Keluar</label>
+                        <input type="number" id="jumlah_keluar" min="0" value="0" required>
+                    </div>
+                    <div>
+                        <label for="distributor">Distributor</label>
+                        <input type="text" id="distributor" required>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" id="submitDetailButton">Tambah</button>
+                    </div>
+                </form>
+            </section>
+        </div>
+
+        <div class="confirm-overlay" id="deleteDetailModal" aria-hidden="true">
+            <section class="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="deleteDetailTitle">
+                <h2 id="deleteDetailTitle">Hapus detail?</h2>
+                <p id="deleteDetailMessage">Data detail yang dihapus akan mengubah Stock In Hand.</p>
+                <div class="confirm-actions">
+                    <button type="button" class="cancel-link" id="cancelDeleteDetail">Batal</button>
+                    <button type="button" class="delete-button" id="confirmDeleteDetail">Ya, hapus</button>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <script src="assets/app.js"></script>
+    <script>StockCare.initDetailPage();</script>
+</body>
+</html>

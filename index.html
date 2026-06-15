@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login | STOCKCARE LAB</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="auth-page">
+    <div class="splash" id="splash">
+        <div class="pill-loader">
+            <span></span>
+            <span></span>
+        </div>
+        <p>StockCare Lab</p>
+    </div>
+
+    <main class="auth-shell">
+        <section class="brand-panel">
+            <div class="login-logos">
+                <img class="brand-logo" src="assets/Maluku_Utara.png" alt="Logo Maluku Utara">
+            </div>
+            <div class="login-card">
+                <div class="login-heading">
+                    <p>StockCare Lab</p>
+                    <h2>Masuk Akun</h2>
+                </div>
+
+                <div class="alert" id="loginAlert" hidden>Username atau password tidak sesuai.</div>
+
+                <form id="loginForm">
+                    <label for="username">Username</label>
+                    <input type="text" id="username" name="username" placeholder="Masukkan username" required>
+
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" placeholder="Masukkan password" required>
+
+                    <button type="submit">Masuk</button>
+                </form>
+            </div>
+            <div class="brand-red-shape" aria-hidden="true"></div>
+        </section>
+    </main>
+
+    <script src="assets/app.js"></script>
+    <script>
+        window.addEventListener("load", function () {
+            setTimeout(function () {
+                document.getElementById("splash").classList.add("hide");
+            }, 1100);
+        });
+        StockCare.initLoginPage();
+    </script>
+</body>
+</html>
