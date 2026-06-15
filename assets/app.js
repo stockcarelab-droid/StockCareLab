@@ -14,6 +14,14 @@ const StockCare = (function () {
                 password: "admin123",
                 role: "admin",
                 status: "aktif"
+            },
+            {
+                id_user: 2,
+                nama_lengkap: "CPNS Labkes 2026",
+                username: "CPNSLabkes2026",
+                password: "CPNSLabkes2026",
+                role: "user",
+                status: "aktif"
             }
         ],
         inventory_items: [],
@@ -56,6 +64,27 @@ const StockCare = (function () {
 
     function saveDatabase(database) {
         localStorage.setItem(DB_KEY, JSON.stringify(database));
+    }
+
+    function syncDefaultUsers(database) {
+        const existingUsers = Array.isArray(database.users) ? database.users : [];
+        let changed = !Array.isArray(database.users);
+
+        fallbackDatabase.users.forEach((defaultUser) => {
+            const exists = existingUsers.some((user) => user.username === defaultUser.username);
+            if (!exists) {
+                existingUsers.push(structuredClone(defaultUser));
+                changed = true;
+            }
+        });
+
+        database.users = existingUsers;
+
+        if (changed) {
+            saveDatabase(database);
+        }
+
+        return database;
     }
 
     function normalizeSearch(value) {
@@ -131,7 +160,7 @@ const StockCare = (function () {
     async function loadInitialDatabase() {
         const stored = getStoredDatabase();
         if (stored) {
-            return stored;
+            return syncDefaultUsers(stored);
         }
 
         try {
@@ -151,7 +180,7 @@ const StockCare = (function () {
     function database() {
         const stored = getStoredDatabase();
         if (stored) {
-            return stored;
+            return syncDefaultUsers(stored);
         }
 
         saveDatabase(fallbackDatabase);

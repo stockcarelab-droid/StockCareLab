@@ -7,6 +7,14 @@
       "password": "admin123",
       "role": "admin",
       "status": "aktif"
+    },
+    {
+      "id_user": 2,
+      "nama_lengkap": "CPNS Labkes 2026",
+      "username": "CPNSLabkes2026",
+      "password": "CPNSLabkes2026",
+      "role": "user",
+      "status": "aktif"
     }
   ],
   "inventory_items": [],
