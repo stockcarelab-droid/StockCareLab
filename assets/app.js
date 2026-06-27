@@ -1,32 +1,13 @@
 const StockCare = (function () {
-    const DB_KEY = "stockcarelab_database";
     const SESSION_KEY = "stockcarelab_session";
+    const SUPABASE_URL = "https://fsdxdcvcvvxlnhaahxep.supabase.co";
+    const SUPABASE_KEY = "sb_publishable_g7wfUvGnf1A19Z0LVIXcdw_dFfIFCi8";
     const categoryLabels = {
         reagen: "Reagen",
         bmhp: "BMHP"
     };
-    const fallbackDatabase = {
-        users: [
-            {
-                id_user: 1,
-                nama_lengkap: "Administrator Lab",
-                username: "admin",
-                password: "admin123",
-                role: "admin",
-                status: "aktif"
-            },
-            {
-                id_user: 2,
-                nama_lengkap: "CPNS Labkes 2026",
-                username: "CPNSLabkes2026",
-                password: "CPNSLabkes2026",
-                role: "user",
-                status: "aktif"
-            }
-        ],
-        inventory_items: [],
-        inventory_item_details: []
-    };
+
+    let supabaseClient = null;
 
     function qs(selector) {
         return document.querySelector(selector);
@@ -49,8 +30,93 @@ const StockCare = (function () {
             .replaceAll("'", "&#039;");
     }
 
-    function getStoredDatabase() {
-        const raw = localStorage.getItem(DB_KEY);
+    function normalizeSearch(value) {
+        return String(value ?? "").trim().toLowerCase();
+    }
+
+    function includesSearch(row, query, fields) {
+        if (!query) {
+            return true;
+        }
+
+        return fields.some((field) => normalizeSearch(row[field]).includes(query));
+    }
+
+    function client() {
+        if (!window.supabase) {
+            throw new Error("Supabase SDK belum dimuat.");
+        }
+
+        if (!supabaseClient) {
+            supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        }
+
+        return supabaseClient;
+    }
+
+    function showAlert(selector, message) {
+        const alert = qs(selector);
+        if (!alert) {
+            return;
+        }
+        alert.textContent = message;
+        alert.hidden = false;
+    }
+
+    function handleError(error, fallbackMessage = "Data gagal diproses. Coba lagi.") {
+        console.error(error);
+        return error?.message || fallbackMessage;
+    }
+
+    async function fetchTable(table, orderBy = null) {
+        let query = client().from(table).select("*");
+        if (orderBy) {
+            query = query.order(orderBy.column, { ascending: orderBy.ascending });
+        }
+        const { data, error } = await query;
+        if (error) {
+            throw error;
+        }
+        return data || [];
+    }
+
+    async function database() {
+        const [users, inventoryItems, inventoryItemDetails] = await Promise.all([
+            fetchTable("users", { column: "id_user", ascending: true }),
+            fetchTable("inventory_items", { column: "id_item", ascending: true }),
+            fetchTable("inventory_item_details", { column: "id_detail", ascending: true })
+        ]);
+
+        return {
+            users,
+            inventory_items: inventoryItems,
+            inventory_item_details: inventoryItemDetails
+        };
+    }
+
+    async function getItem(idItem) {
+        const { data, error } = await client()
+            .from("inventory_items")
+            .select("*")
+            .eq("id_item", idItem)
+            .single();
+
+        if (error) {
+            throw error;
+        }
+
+        return data;
+    }
+
+    async function updateItemStock(idItem) {
+        const { error } = await client().rpc("refresh_item_stock", { item_id: idItem });
+        if (error) {
+            throw error;
+        }
+    }
+
+    function session() {
+        const raw = sessionStorage.getItem(SESSION_KEY) || localStorage.getItem(SESSION_KEY);
         if (!raw) {
             return null;
         }
@@ -62,41 +128,33 @@ const StockCare = (function () {
         }
     }
 
-    function saveDatabase(database) {
-        localStorage.setItem(DB_KEY, JSON.stringify(database));
-    }
-
-    function syncDefaultUsers(database) {
-        const existingUsers = Array.isArray(database.users) ? database.users : [];
-        let changed = !Array.isArray(database.users);
-
-        fallbackDatabase.users.forEach((defaultUser) => {
-            const exists = existingUsers.some((user) => user.username === defaultUser.username);
-            if (!exists) {
-                existingUsers.push(structuredClone(defaultUser));
-                changed = true;
-            }
-        });
-
-        database.users = existingUsers;
-
-        if (changed) {
-            saveDatabase(database);
+    function requireLogin() {
+        const activeSession = session();
+        if (!activeSession) {
+            window.location.href = "index.html";
+            return null;
         }
-
-        return database;
+        return activeSession;
     }
 
-    function normalizeSearch(value) {
-        return String(value ?? "").trim().toLowerCase();
+    function logout() {
+        sessionStorage.removeItem(SESSION_KEY);
+        localStorage.removeItem(SESSION_KEY);
+        window.location.href = "index.html";
     }
 
-    function includesSearch(row, query, fields) {
-        if (!query) {
-            return true;
-        }
+    function bindLogout() {
+        qsa("[data-logout]").forEach((button) => button.addEventListener("click", logout));
+    }
 
-        return fields.some((field) => normalizeSearch(row[field]).includes(query));
+    function openOverlay(overlay) {
+        overlay.classList.add("show");
+        overlay.setAttribute("aria-hidden", "false");
+    }
+
+    function closeOverlay(overlay) {
+        overlay.classList.remove("show");
+        overlay.setAttribute("aria-hidden", "true");
     }
 
     function formatDuration(totalSeconds) {
@@ -157,94 +215,7 @@ const StockCare = (function () {
         link.remove();
     }
 
-    async function loadInitialDatabase() {
-        const stored = getStoredDatabase();
-        if (stored) {
-            return syncDefaultUsers(stored);
-        }
-
-        try {
-            const response = await fetch("assets/database.json", { cache: "no-store" });
-            if (!response.ok) {
-                throw new Error("Database JSON tidak tersedia.");
-            }
-            const database = await response.json();
-            saveDatabase(database);
-            return database;
-        } catch {
-            saveDatabase(fallbackDatabase);
-            return structuredClone(fallbackDatabase);
-        }
-    }
-
-    function database() {
-        const stored = getStoredDatabase();
-        if (stored) {
-            return syncDefaultUsers(stored);
-        }
-
-        saveDatabase(fallbackDatabase);
-        return structuredClone(fallbackDatabase);
-    }
-
-    function nextId(rows, field) {
-        return rows.reduce((highest, row) => Math.max(highest, Number(row[field]) || 0), 0) + 1;
-    }
-
-    function session() {
-        const raw = sessionStorage.getItem(SESSION_KEY) || localStorage.getItem(SESSION_KEY);
-        if (!raw) {
-            return null;
-        }
-
-        try {
-            return JSON.parse(raw);
-        } catch {
-            return null;
-        }
-    }
-
-    function requireLogin() {
-        const activeSession = session();
-        if (!activeSession) {
-            window.location.href = "index.html";
-            return null;
-        }
-        return activeSession;
-    }
-
-    function logout() {
-        sessionStorage.removeItem(SESSION_KEY);
-        localStorage.removeItem(SESSION_KEY);
-        window.location.href = "index.html";
-    }
-
-    function bindLogout() {
-        qsa("[data-logout]").forEach((button) => button.addEventListener("click", logout));
-    }
-
-    function openOverlay(overlay) {
-        overlay.classList.add("show");
-        overlay.setAttribute("aria-hidden", "false");
-    }
-
-    function closeOverlay(overlay) {
-        overlay.classList.remove("show");
-        overlay.setAttribute("aria-hidden", "true");
-    }
-
-    function updateStock(database, idItem) {
-        const stock = database.inventory_item_details
-            .filter((detail) => Number(detail.id_item) === Number(idItem))
-            .reduce((total, detail) => total + Number(detail.jumlah_masuk) - Number(detail.jumlah_keluar), 0);
-        const item = database.inventory_items.find((row) => Number(row.id_item) === Number(idItem));
-        if (item) {
-            item.stock_in_hand = stock;
-        }
-    }
-
     async function initLoginPage() {
-        await loadInitialDatabase();
         if (session()) {
             window.location.href = "dashboard.html";
             return;
@@ -252,27 +223,43 @@ const StockCare = (function () {
 
         const form = qs("#loginForm");
         const alert = qs("#loginAlert");
-        form.addEventListener("submit", function (event) {
+        form.addEventListener("submit", async function (event) {
             event.preventDefault();
-            const db = database();
-            const username = qs("#username").value.trim();
-            const password = qs("#password").value;
-            const user = db.users.find((row) => row.username === username && row.password === password && row.status === "aktif");
+            alert.hidden = true;
 
-            if (!user) {
+            try {
+                const username = qs("#username").value.trim();
+                const password = qs("#password").value;
+                const { data: user, error } = await client()
+                    .from("users")
+                    .select("*")
+                    .eq("username", username)
+                    .eq("password", password)
+                    .eq("status", "aktif")
+                    .maybeSingle();
+
+                if (error) {
+                    throw error;
+                }
+
+                if (!user) {
+                    alert.hidden = false;
+                    return;
+                }
+
+                const activeSession = {
+                    id_user: user.id_user,
+                    nama_lengkap: user.nama_lengkap,
+                    username: user.username,
+                    role: user.role,
+                    login_started_at: Date.now()
+                };
+                sessionStorage.setItem(SESSION_KEY, JSON.stringify(activeSession));
+                window.location.href = "dashboard.html";
+            } catch (error) {
+                alert.textContent = handleError(error, "Tidak bisa terhubung ke database.");
                 alert.hidden = false;
-                return;
             }
-
-            const activeSession = {
-                id_user: user.id_user,
-                nama_lengkap: user.nama_lengkap,
-                username: user.username,
-                role: user.role,
-                login_started_at: Date.now()
-            };
-            sessionStorage.setItem(SESSION_KEY, JSON.stringify(activeSession));
-            window.location.href = "dashboard.html";
         });
     }
 
@@ -287,6 +274,7 @@ const StockCare = (function () {
         qs("#userName").textContent = activeSession.nama_lengkap;
 
         let deleteId = null;
+        let cachedItems = [];
         const category = categoryLabels[params().get("kategori")] ? params().get("kategori") : "";
         const panel = qs("#stockPanel");
         const sheet = qs("#itemSheet");
@@ -302,40 +290,56 @@ const StockCare = (function () {
         qs("#panelTitle").textContent = "Data " + categoryLabels[category];
         qs("#" + category + "Tab").classList.add("active");
 
-        function dashboardRows() {
-            const query = normalizeSearch(qs("#dashboardSearch").value);
-            const db = database();
-            return db.inventory_items
-                .filter((item) => item.kategori === category)
-                .filter((item) => includesSearch(item, query, ["item", "stock_in_hand", "expire_date", "distributor"]))
-                .sort((a, b) => Number(b.id_item) - Number(a.id_item));
+        async function loadItems() {
+            const { data, error } = await client()
+                .from("inventory_items")
+                .select("*")
+                .eq("kategori", category)
+                .order("id_item", { ascending: false });
+
+            if (error) {
+                throw error;
+            }
+
+            cachedItems = data || [];
         }
 
-        function renderItems() {
-            const rows = dashboardRows();
+        function dashboardRows() {
+            const query = normalizeSearch(qs("#dashboardSearch").value);
+            return cachedItems
+                .filter((item) => includesSearch(item, query, ["item", "stock_in_hand", "expire_date", "distributor"]));
+        }
 
-            qs("#itemRows").innerHTML = rows.length ? rows.map((item, index) => `
-                <tr>
-                    <td>${index + 1}</td>
-                    <td><a class="item-link" href="item_detail.html?id_item=${item.id_item}">${escapeHtml(item.item)}</a></td>
-                    <td>${escapeHtml(item.stock_in_hand)}</td>
-                    <td>${escapeHtml(item.expire_date)}</td>
-                    <td>${escapeHtml(item.distributor)}</td>
-                    <td>
-                        <div class="table-actions">
-                            <button type="button" class="cancel-link" data-edit-id="${item.id_item}">Edit</button>
-                            <button type="button" class="delete-button" data-delete-id="${item.id_item}" data-delete-name="${escapeHtml(item.item)}">Hapus</button>
-                        </div>
-                    </td>
-                </tr>
-            `).join("") : `<tr><td colspan="6" class="empty-state">Data tidak ditemukan.</td></tr>`;
+        async function renderItems() {
+            try {
+                await loadItems();
+                const rows = dashboardRows();
 
-            qsa("[data-edit-id]").forEach((button) => button.addEventListener("click", () => openItemForm(Number(button.dataset.editId))));
-            qsa("[data-delete-id]").forEach((button) => button.addEventListener("click", () => {
-                deleteId = Number(button.dataset.deleteId);
-                qs("#deleteMessage").textContent = "Yakin ingin menghapus " + button.dataset.deleteName + "?";
-                openOverlay(deleteModal);
-            }));
+                qs("#itemRows").innerHTML = rows.length ? rows.map((item, index) => `
+                    <tr>
+                        <td>${index + 1}</td>
+                        <td><a class="item-link" href="item_detail.html?id_item=${item.id_item}">${escapeHtml(item.item)}</a></td>
+                        <td>${escapeHtml(item.stock_in_hand)}</td>
+                        <td>${escapeHtml(item.expire_date)}</td>
+                        <td>${escapeHtml(item.distributor)}</td>
+                        <td>
+                            <div class="table-actions">
+                                <button type="button" class="cancel-link" data-edit-id="${item.id_item}">Edit</button>
+                                <button type="button" class="delete-button" data-delete-id="${item.id_item}" data-delete-name="${escapeHtml(item.item)}">Hapus</button>
+                            </div>
+                        </td>
+                    </tr>
+                `).join("") : `<tr><td colspan="6" class="empty-state">Data tidak ditemukan.</td></tr>`;
+
+                qsa("[data-edit-id]").forEach((button) => button.addEventListener("click", () => openItemForm(Number(button.dataset.editId))));
+                qsa("[data-delete-id]").forEach((button) => button.addEventListener("click", () => {
+                    deleteId = Number(button.dataset.deleteId);
+                    qs("#deleteMessage").textContent = "Yakin ingin menghapus " + button.dataset.deleteName + "?";
+                    openOverlay(deleteModal);
+                }));
+            } catch (error) {
+                qs("#itemRows").innerHTML = `<tr><td colspan="6" class="empty-state">${escapeHtml(handleError(error, "Data gagal dimuat."))}</td></tr>`;
+            }
         }
 
         function exportDashboard() {
@@ -373,7 +377,7 @@ const StockCare = (function () {
             setAddOnlyVisible(!isEdit);
 
             if (isEdit) {
-                const item = database().inventory_items.find((row) => Number(row.id_item) === Number(idItem));
+                const item = cachedItems.find((row) => Number(row.id_item) === Number(idItem));
                 qs("#item").value = item.item;
                 qs("#expire_date").value = item.expire_date;
                 qs("#distributor").value = item.distributor;
@@ -383,69 +387,120 @@ const StockCare = (function () {
         }
 
         qs("#openFormButton").addEventListener("click", () => openItemForm());
-        qs("#dashboardSearch").addEventListener("input", renderItems);
+        qs("#dashboardSearch").addEventListener("input", () => {
+            const rows = dashboardRows();
+            qs("#itemRows").innerHTML = rows.length ? rows.map((item, index) => `
+                <tr>
+                    <td>${index + 1}</td>
+                    <td><a class="item-link" href="item_detail.html?id_item=${item.id_item}">${escapeHtml(item.item)}</a></td>
+                    <td>${escapeHtml(item.stock_in_hand)}</td>
+                    <td>${escapeHtml(item.expire_date)}</td>
+                    <td>${escapeHtml(item.distributor)}</td>
+                    <td>
+                        <div class="table-actions">
+                            <button type="button" class="cancel-link" data-edit-id="${item.id_item}">Edit</button>
+                            <button type="button" class="delete-button" data-delete-id="${item.id_item}" data-delete-name="${escapeHtml(item.item)}">Hapus</button>
+                        </div>
+                    </td>
+                </tr>
+            `).join("") : `<tr><td colspan="6" class="empty-state">Data tidak ditemukan.</td></tr>`;
+            qsa("[data-edit-id]").forEach((button) => button.addEventListener("click", () => openItemForm(Number(button.dataset.editId))));
+            qsa("[data-delete-id]").forEach((button) => button.addEventListener("click", () => {
+                deleteId = Number(button.dataset.deleteId);
+                qs("#deleteMessage").textContent = "Yakin ingin menghapus " + button.dataset.deleteName + "?";
+                openOverlay(deleteModal);
+            }));
+        });
         qs("#exportDashboardButton").addEventListener("click", exportDashboard);
         qsa("[data-close-sheet]").forEach((button) => button.addEventListener("click", () => closeOverlay(sheet)));
         qs("#cancelDelete").addEventListener("click", () => closeOverlay(deleteModal));
-        qs("#confirmDelete").addEventListener("click", () => {
-            const db = database();
-            db.inventory_items = db.inventory_items.filter((item) => Number(item.id_item) !== deleteId);
-            db.inventory_item_details = db.inventory_item_details.filter((detail) => Number(detail.id_item) !== deleteId);
-            saveDatabase(db);
-            closeOverlay(deleteModal);
-            renderItems();
+        qs("#confirmDelete").addEventListener("click", async () => {
+            try {
+                const { error } = await client().from("inventory_items").delete().eq("id_item", deleteId);
+                if (error) {
+                    throw error;
+                }
+                closeOverlay(deleteModal);
+                await renderItems();
+            } catch (error) {
+                showAlert("#formAlert", handleError(error, "Item gagal dihapus."));
+            }
         });
 
-        qs("#itemForm").addEventListener("submit", function (event) {
+        qs("#itemForm").addEventListener("submit", async function (event) {
             event.preventDefault();
-            const db = database();
-            const idItem = Number(qs("#editItemId").value);
-            const payload = {
-                item: qs("#item").value.trim(),
-                expire_date: qs("#expire_date").value,
-                distributor: qs("#distributor").value.trim()
-            };
+            qs("#formAlert").hidden = true;
 
-            if (idItem) {
-                const item = db.inventory_items.find((row) => Number(row.id_item) === idItem);
-                Object.assign(item, payload);
-                db.inventory_item_details
-                    .filter((detail) => Number(detail.id_item) === idItem)
-                    .forEach((detail) => {
-                        detail.expire_date = payload.expire_date;
-                        detail.distributor = payload.distributor;
-                    });
-            } else {
-                const newItem = {
-                    id_item: nextId(db.inventory_items, "id_item"),
-                    kategori: category,
-                    stock_in_hand: 0,
-                    ...payload
+            try {
+                const idItem = Number(qs("#editItemId").value);
+                const payload = {
+                    item: qs("#item").value.trim(),
+                    expire_date: qs("#expire_date").value,
+                    distributor: qs("#distributor").value.trim()
                 };
-                db.inventory_items.push(newItem);
-                db.inventory_item_details.push({
-                    id_detail: nextId(db.inventory_item_details, "id_detail"),
-                    id_item: newItem.id_item,
-                    tanggal: qs("#tanggal").value,
-                    jumlah_masuk: Number(qs("#jumlah_masuk").value) || 0,
-                    nomor_batch: qs("#nomor_batch").value.trim(),
-                    expire_date: payload.expire_date,
-                    satuan: qs("#satuan").value.trim(),
-                    jumlah_keluar: Number(qs("#jumlah_keluar").value) || 0,
-                    distributor: payload.distributor
-                });
-                updateStock(db, newItem.id_item);
-            }
 
-            saveDatabase(db);
-            closeOverlay(sheet);
-            renderItems();
+                if (idItem) {
+                    const { error: itemError } = await client()
+                        .from("inventory_items")
+                        .update(payload)
+                        .eq("id_item", idItem);
+                    if (itemError) {
+                        throw itemError;
+                    }
+
+                    const { error: detailError } = await client()
+                        .from("inventory_item_details")
+                        .update({
+                            expire_date: payload.expire_date,
+                            distributor: payload.distributor
+                        })
+                        .eq("id_item", idItem);
+                    if (detailError) {
+                        throw detailError;
+                    }
+                } else {
+                    const { data: newItem, error: itemError } = await client()
+                        .from("inventory_items")
+                        .insert({
+                            kategori: category,
+                            stock_in_hand: 0,
+                            ...payload
+                        })
+                        .select()
+                        .single();
+                    if (itemError) {
+                        throw itemError;
+                    }
+
+                    const { error: detailError } = await client()
+                        .from("inventory_item_details")
+                        .insert({
+                            id_item: newItem.id_item,
+                            tanggal: qs("#tanggal").value,
+                            jumlah_masuk: Number(qs("#jumlah_masuk").value) || 0,
+                            nomor_batch: qs("#nomor_batch").value.trim(),
+                            expire_date: payload.expire_date,
+                            satuan: qs("#satuan").value.trim(),
+                            jumlah_keluar: Number(qs("#jumlah_keluar").value) || 0,
+                            distributor: payload.distributor
+                        });
+                    if (detailError) {
+                        throw detailError;
+                    }
+                    await updateItemStock(newItem.id_item);
+                }
+
+                closeOverlay(sheet);
+                await renderItems();
+            } catch (error) {
+                showAlert("#formAlert", handleError(error, "Item gagal disimpan."));
+            }
         });
 
         renderItems();
     }
 
-    function initDetailPage() {
+    async function initDetailPage() {
         const activeSession = requireLogin();
         if (!activeSession) {
             return;
@@ -453,10 +508,12 @@ const StockCare = (function () {
 
         bindLogout();
         const idItem = Number(params().get("id_item"));
-        let db = database();
-        let item = db.inventory_items.find((row) => Number(row.id_item) === idItem);
+        let item = null;
+        let cachedDetails = [];
 
-        if (!item) {
+        try {
+            item = await getItem(idItem);
+        } catch {
             window.location.href = "dashboard.html";
             return;
         }
@@ -465,9 +522,8 @@ const StockCare = (function () {
         const deleteModal = qs("#deleteDetailModal");
         let deleteId = null;
 
-        function refreshItem() {
-            db = database();
-            item = db.inventory_items.find((row) => Number(row.id_item) === idItem);
+        async function refreshItem() {
+            item = await getItem(idItem);
             qs("#categoryLabel").textContent = categoryLabels[item.kategori] || item.kategori;
             qs("#itemTitle").textContent = item.item;
             qs("#sheetItemName").textContent = item.item;
@@ -477,31 +533,76 @@ const StockCare = (function () {
             document.title = item.item + " | StockCare Lab";
         }
 
-        function detailRowsWithStock() {
+        async function loadDetails() {
+            const { data, error } = await client()
+                .from("inventory_item_details")
+                .select("*")
+                .eq("id_item", idItem)
+                .order("tanggal", { ascending: true })
+                .order("id_detail", { ascending: true });
+
+            if (error) {
+                throw error;
+            }
+
             let runningStock = 0;
-            const query = normalizeSearch(qs("#detailSearch").value);
-            const rows = database().inventory_item_details
-                .filter((detail) => Number(detail.id_item) === idItem)
-                .sort((a, b) => String(a.tanggal).localeCompare(String(b.tanggal)) || Number(a.id_detail) - Number(b.id_detail))
-                .map((detail) => {
-                    runningStock += Number(detail.jumlah_masuk) - Number(detail.jumlah_keluar);
-                    return { ...detail, jumlah_stok: runningStock };
-                })
-                .filter((detail) => includesSearch(detail, query, [
-                    "tanggal",
-                    "jumlah_masuk",
-                    "nomor_batch",
-                    "expire_date",
-                    "satuan",
-                    "jumlah_keluar",
-                    "jumlah_stok",
-                    "distributor"
-                ]));
-            return qs("#urutan").value === "terbaru" ? rows.reverse() : rows;
+            cachedDetails = (data || []).map((detail) => {
+                runningStock += Number(detail.jumlah_masuk) - Number(detail.jumlah_keluar);
+                return { ...detail, jumlah_stok: runningStock };
+            });
         }
 
-        function renderDetails() {
-            refreshItem();
+        function detailRowsWithStock() {
+            const query = normalizeSearch(qs("#detailSearch").value);
+            const rows = cachedDetails.filter((detail) => includesSearch(detail, query, [
+                "tanggal",
+                "jumlah_masuk",
+                "nomor_batch",
+                "expire_date",
+                "satuan",
+                "jumlah_keluar",
+                "jumlah_stok",
+                "distributor"
+            ]));
+            return qs("#urutan").value === "terbaru" ? [...rows].reverse() : rows;
+        }
+
+        async function renderDetails() {
+            try {
+                await refreshItem();
+                await loadDetails();
+                const rows = detailRowsWithStock();
+                qs("#detailRows").innerHTML = rows.length ? rows.map((detail) => `
+                    <tr>
+                        <td>${escapeHtml(detail.tanggal)}</td>
+                        <td>${escapeHtml(detail.jumlah_masuk)}</td>
+                        <td>${escapeHtml(detail.nomor_batch)}</td>
+                        <td>${escapeHtml(detail.expire_date)}</td>
+                        <td>${escapeHtml(detail.satuan)}</td>
+                        <td>${escapeHtml(detail.jumlah_keluar)}</td>
+                        <td>${escapeHtml(detail.jumlah_stok)}</td>
+                        <td>${escapeHtml(detail.distributor)}</td>
+                        <td>
+                            <div class="table-actions">
+                                <button type="button" class="cancel-link" data-edit-detail="${detail.id_detail}">Edit</button>
+                                <button type="button" class="delete-button" data-delete-detail="${detail.id_detail}" data-delete-name="${escapeHtml(detail.tanggal + " - " + detail.nomor_batch)}">Hapus</button>
+                            </div>
+                        </td>
+                    </tr>
+                `).join("") : `<tr><td colspan="9" class="empty-state">Belum ada detail untuk item ini.</td></tr>`;
+
+                qsa("[data-edit-detail]").forEach((button) => button.addEventListener("click", () => openDetailForm(Number(button.dataset.editDetail))));
+                qsa("[data-delete-detail]").forEach((button) => button.addEventListener("click", () => {
+                    deleteId = Number(button.dataset.deleteDetail);
+                    qs("#deleteDetailMessage").textContent = "Yakin ingin menghapus detail " + button.dataset.deleteName + "? Stock In Hand akan dihitung ulang.";
+                    openOverlay(deleteModal);
+                }));
+            } catch (error) {
+                qs("#detailRows").innerHTML = `<tr><td colspan="9" class="empty-state">${escapeHtml(handleError(error, "Data detail gagal dimuat."))}</td></tr>`;
+            }
+        }
+
+        function renderFilteredDetails() {
             const rows = detailRowsWithStock();
             qs("#detailRows").innerHTML = rows.length ? rows.map((detail) => `
                 <tr>
@@ -538,7 +639,7 @@ const StockCare = (function () {
             qs("#submitDetailButton").textContent = idDetail ? "Simpan" : "Tambah";
 
             if (idDetail) {
-                const detail = database().inventory_item_details.find((row) => Number(row.id_detail) === Number(idDetail));
+                const detail = cachedDetails.find((row) => Number(row.id_detail) === Number(idDetail));
                 qs("#tanggal").value = detail.tanggal;
                 qs("#jumlah_masuk").value = detail.jumlah_masuk;
                 qs("#nomor_batch").value = detail.nomor_batch;
@@ -575,50 +676,57 @@ const StockCare = (function () {
             );
         }
 
-        qs("#urutan").addEventListener("change", renderDetails);
-        qs("#detailSearch").addEventListener("input", renderDetails);
+        qs("#urutan").addEventListener("change", renderFilteredDetails);
+        qs("#detailSearch").addEventListener("input", renderFilteredDetails);
         qs("#exportDetailButton").addEventListener("click", exportDetails);
         qs("#openDetailFormButton").addEventListener("click", () => openDetailForm());
         qsa("[data-close-sheet]").forEach((button) => button.addEventListener("click", () => closeOverlay(sheet)));
         qs("#cancelDeleteDetail").addEventListener("click", () => closeOverlay(deleteModal));
-        qs("#confirmDeleteDetail").addEventListener("click", () => {
-            const currentDb = database();
-            currentDb.inventory_item_details = currentDb.inventory_item_details.filter((detail) => Number(detail.id_detail) !== deleteId);
-            updateStock(currentDb, idItem);
-            saveDatabase(currentDb);
-            closeOverlay(deleteModal);
-            renderDetails();
+        qs("#confirmDeleteDetail").addEventListener("click", async () => {
+            try {
+                const { error } = await client().from("inventory_item_details").delete().eq("id_detail", deleteId);
+                if (error) {
+                    throw error;
+                }
+                await updateItemStock(idItem);
+                closeOverlay(deleteModal);
+                await renderDetails();
+            } catch (error) {
+                showAlert("#detailAlert", handleError(error, "Detail gagal dihapus."));
+            }
         });
 
-        qs("#detailForm").addEventListener("submit", function (event) {
+        qs("#detailForm").addEventListener("submit", async function (event) {
             event.preventDefault();
-            const currentDb = database();
-            const idDetail = Number(qs("#editDetailId").value);
-            const payload = {
-                id_item: idItem,
-                tanggal: qs("#tanggal").value,
-                jumlah_masuk: Number(qs("#jumlah_masuk").value) || 0,
-                nomor_batch: qs("#nomor_batch").value.trim(),
-                expire_date: qs("#expire_date").value,
-                satuan: qs("#satuan").value.trim(),
-                jumlah_keluar: Number(qs("#jumlah_keluar").value) || 0,
-                distributor: qs("#distributor").value.trim()
-            };
+            qs("#detailAlert").hidden = true;
 
-            if (idDetail) {
-                const detail = currentDb.inventory_item_details.find((row) => Number(row.id_detail) === idDetail);
-                Object.assign(detail, payload);
-            } else {
-                currentDb.inventory_item_details.push({
-                    id_detail: nextId(currentDb.inventory_item_details, "id_detail"),
-                    ...payload
-                });
+            try {
+                const idDetail = Number(qs("#editDetailId").value);
+                const payload = {
+                    id_item: idItem,
+                    tanggal: qs("#tanggal").value,
+                    jumlah_masuk: Number(qs("#jumlah_masuk").value) || 0,
+                    nomor_batch: qs("#nomor_batch").value.trim(),
+                    expire_date: qs("#expire_date").value,
+                    satuan: qs("#satuan").value.trim(),
+                    jumlah_keluar: Number(qs("#jumlah_keluar").value) || 0,
+                    distributor: qs("#distributor").value.trim()
+                };
+
+                const request = idDetail
+                    ? client().from("inventory_item_details").update(payload).eq("id_detail", idDetail)
+                    : client().from("inventory_item_details").insert(payload);
+                const { error } = await request;
+                if (error) {
+                    throw error;
+                }
+
+                await updateItemStock(idItem);
+                closeOverlay(sheet);
+                await renderDetails();
+            } catch (error) {
+                showAlert("#detailAlert", handleError(error, "Detail gagal disimpan."));
             }
-
-            updateStock(currentDb, idItem);
-            saveDatabase(currentDb);
-            closeOverlay(sheet);
-            renderDetails();
         });
 
         renderDetails();
@@ -627,6 +735,7 @@ const StockCare = (function () {
     return {
         initLoginPage,
         initDashboardPage,
-        initDetailPage
+        initDetailPage,
+        database
     };
 })();
